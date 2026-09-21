@@ -93,4 +93,4 @@ forgeable and client addresses on disk.
 
 ## License
 
-[MIT](LICENSE) © 2026 Emre Can Yılmaz
+[MIT](LICENSE)

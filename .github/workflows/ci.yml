@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: gofmt -l . | tee /dev/stderr | (! read)
+
+      # The privacy claim is architectural, so it is worth failing the build
+      # over: nothing may write a client address, and no per-session or
+      # per-address column may appear in the history schema.
+      - name: Keep addresses out of storage and logs
+        run: |
+          ! grep -nE 'slog\.[A-Za-z]+\([^)]*"(addr|ip|client|remote|remote_addr|peer|forwarded)"' *.go
+          ! grep -nE '(session|ip|addr|remote)[a-z_]*\s+TEXT' store.go
+
+      - name: Refuse to start unsafely
+        run: go test -run TestLoadConfigRefusesUnsafeSetups -v ./...

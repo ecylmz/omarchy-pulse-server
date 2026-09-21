@@ -35,12 +35,8 @@ so a shell loop cannot inflate it and cannot be in two places at once
 ```
 POST /v1/heartbeat                                  → {world, country, subdivision, …}
 GET  /v1/history?scope=subdivision&code=TR-55       → points + peaks
-GET  /healthz                                       → "pulse ok"
+GET  /healthz
 ```
-
-The health body is deliberately distinctive rather than a bare `ok`: an uptime
-check matching two letters would also match any page containing "cookie", so a
-CDN error page served with a 200 could read as healthy.
 
 That is the whole API.
 

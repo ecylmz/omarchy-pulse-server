@@ -163,12 +163,8 @@ func run() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/heartbeat", s.handleHeartbeat)
 	mux.HandleFunc("GET /v1/history", s.handleHistory)
-	// The body is distinctive on purpose. An uptime check that only matches
-	// "ok" would also match any page containing the word "cookie", so a CDN
-	// error page served with a 200 could read as healthy. "pulse ok" cannot
-	// come from anything but this process.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintln(w, "pulse ok")
+		fmt.Fprintln(w, "ok")
 	})
 
 	httpSrv := &http.Server{

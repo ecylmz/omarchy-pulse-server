@@ -573,14 +573,7 @@ user from a closed laptop.
 ```text
 POST /v1/heartbeat
 GET  /v1/history?scope=subdivision&code=TR-55&range=24h
-GET  /healthz                                          → "pulse ok"
 ```
-
-`/healthz` answers with `pulse ok` rather than `ok` so that an uptime check can
-match on a string nothing else produces. Matching two letters would also match
-any page containing "cookie", which means a CDN error page returned with a 200
-could be read as healthy — the precise failure an uptime check exists to
-catch.
 
 That is the whole API.
 

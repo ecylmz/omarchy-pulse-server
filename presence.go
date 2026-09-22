@@ -54,18 +54,28 @@ type presence struct {
 	world     int
 	byCountry map[string]int
 	bySub     map[string]int
+
+	// The highest each counter has reached since the last snapshot. History
+	// is written every five minutes, and somebody who installs the plugin,
+	// looks at it and closes the lid is gone long before that: sampling the
+	// live counter would record that they were never here (SPEC §15.2).
+	peakWorld   int
+	peakCountry map[string]int
+	peakSub     map[string]int
 }
 
 func newPresence(secret []byte, ttl, minBeat time.Duration, maxKeys, v6Bits int) *presence {
 	return &presence{
-		secret:    secret,
-		ttl:       ttl,
-		minBeat:   minBeat,
-		maxKeys:   maxKeys,
-		v6Bits:    v6Bits,
-		entries:   make(map[presenceKey]entry),
-		byCountry: make(map[string]int),
-		bySub:     make(map[string]int),
+		secret:      secret,
+		ttl:         ttl,
+		minBeat:     minBeat,
+		maxKeys:     maxKeys,
+		v6Bits:      v6Bits,
+		entries:     make(map[presenceKey]entry),
+		byCountry:   make(map[string]int),
+		bySub:       make(map[string]int),
+		peakCountry: make(map[string]int),
+		peakSub:     make(map[string]int),
 	}
 }
 
@@ -108,11 +118,21 @@ func (p *presence) beat(k presenceKey, country, sub string, now time.Time) (coun
 	return counts{World: p.world, Country: p.byCountry[country], Subdivision: p.bySub[sub]}, nil
 }
 
+// claim raises the counters and, with them, the peaks for this window. The
+// peaks read the counters rather than counting arrivals, which is what keeps a
+// move honest: someone going Samsun → Istanbul → Samsun releases each location
+// before taking the next, so no counter is ever at 2 and no peak can be.
 func (p *presence) claim(country, sub string) {
 	p.world++
 	p.byCountry[country]++
 	if sub != "" {
 		p.bySub[sub]++
+	}
+
+	p.peakWorld = max(p.peakWorld, p.world)
+	p.peakCountry[country] = max(p.peakCountry[country], p.byCountry[country])
+	if sub != "" {
+		p.peakSub[sub] = max(p.peakSub[sub], p.bySub[sub])
 	}
 }
 
@@ -158,22 +178,27 @@ func (p *presence) counts(country, sub string) counts {
 	return counts{World: p.world, Country: p.byCountry[country], Subdivision: p.bySub[sub]}
 }
 
-// snapshot returns every scope with at least one presence. Scopes at zero are
-// omitted deliberately: writing all ~3800 catalog scopes every five minutes
-// would be ~1.2M rows a day of almost entirely zeros (SPEC §15.2).
+// snapshot returns each scope's peak since the last call and starts the next
+// window from what is live right now. Scopes that stayed at zero are omitted
+// deliberately: writing all ~3800 catalog scopes every five minutes would be
+// ~1.2M rows a day of almost entirely zeros (SPEC §15.2).
 func (p *presence) snapshot() []scopeCount {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	rows := make([]scopeCount, 0, 1+len(p.byCountry)+len(p.bySub))
-	if p.world > 0 {
-		rows = append(rows, scopeCount{Scope: "world", Code: "WORLD", Online: p.world})
+	rows := make([]scopeCount, 0, 1+len(p.peakCountry)+len(p.peakSub))
+	if p.peakWorld > 0 {
+		rows = append(rows, scopeCount{Scope: "world", Code: "WORLD", Online: p.peakWorld})
 	}
-	for code, n := range p.byCountry {
+	for code, n := range p.peakCountry {
 		rows = append(rows, scopeCount{Scope: "country", Code: code, Online: n})
 	}
-	for code, n := range p.bySub {
+	for code, n := range p.peakSub {
 		rows = append(rows, scopeCount{Scope: "subdivision", Code: code, Online: n})
 	}
+
+	p.peakWorld = p.world
+	p.peakCountry = maps.Clone(p.byCountry)
+	p.peakSub = maps.Clone(p.bySub)
 	return rows
 }

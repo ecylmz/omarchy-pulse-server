@@ -712,10 +712,16 @@ PRAGMA synchronous  = NORMAL;
 PRAGMA busy_timeout = 5000;
 ```
 
-A snapshot every 5 minutes writes **only scopes with `online > 0`.** Writing
-every catalog scope would be ~4,200 rows × 288/day ≈ 1.2M rows/day, ~99% of
-them zeros. Skipping zeros makes the table proportional to actual usage, and a
-gap in the series reads as zero at query time.
+A snapshot every 5 minutes writes **each scope's peak since the last
+snapshot**, and **only scopes that reached `online > 0`.** The peak rather than
+the live count, because somebody who installs the plugin, looks at it and
+closes the lid is gone within the 3-minute TTL, long before the next sample:
+reading the counter would record that they were never here. The peak is taken
+from the counters themselves, not from arrivals, so a client moving between
+locations still peaks at one everywhere it went. Writing every catalog scope
+would be ~4,200 rows × 288/day ≈ 1.2M rows/day, ~99% of them zeros. Skipping
+zeros makes the table proportional to actual usage, and a gap in the series
+reads as zero at query time.
 
 No key, no session, no IP, no per-user row ever reaches SQLite.
 

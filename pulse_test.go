@@ -490,3 +490,64 @@ func TestHistoryIsServedFromCache(t *testing.T) {
 		t.Fatalf("cache grew to %d entries, cap is 4", len(capped.entries))
 	}
 }
+
+// The bar reads a live counter, history reads a five-minute snapshot, and
+// somebody who installs the plugin and closes the lid is gone in between. The
+// window's peak is what makes them count at all.
+func TestSnapshotKeepsSomeoneWhoCameAndWent(t *testing.T) {
+	p := testPresence(t)
+	now := time.Now()
+	key := p.key(netip.MustParseAddr("203.0.113.9"))
+
+	if _, err := p.beat(key, "TR", "TR-55", now); err != nil {
+		t.Fatal(err)
+	}
+	if n := p.sweep(now.Add(4 * time.Minute)); n != 1 {
+		t.Fatalf("swept %d presences, want 1", n)
+	}
+	if p.world != 0 {
+		t.Fatalf("live world %d, want 0", p.world)
+	}
+
+	rows := p.snapshot()
+	if len(rows) != 3 { // world + TR + TR-55
+		t.Fatalf("snapshot wrote %d rows, want 3: %+v", len(rows), rows)
+	}
+	for _, r := range rows {
+		if r.Online != 1 {
+			t.Fatalf("%s/%s recorded %d, want 1", r.Scope, r.Code, r.Online)
+		}
+	}
+
+	// The next window starts from what is live, which is nobody.
+	if rows := p.snapshot(); len(rows) != 0 {
+		t.Fatalf("second snapshot wrote %+v, want nothing", rows)
+	}
+}
+
+// Peaks read the counters rather than counting arrivals, so a tour of the
+// country cannot make one person look like a crowd — in any scope, including
+// the one they keep coming back to.
+func TestMovingAroundNeverPeaksAboveOne(t *testing.T) {
+	p := testPresence(t)
+	now := time.Now()
+	key := p.key(netip.MustParseAddr("203.0.113.10"))
+
+	for i, stop := range []struct{ country, sub string }{
+		{"TR", "TR-55"}, {"TR", "TR-34"}, {"TR", "TR-55"},
+	} {
+		if _, err := p.beat(key, stop.country, stop.sub, now.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("stop %d: %v", i, err)
+		}
+	}
+
+	rows := p.snapshot()
+	if len(rows) != 4 { // world + TR + TR-55 + TR-34: they really were in both
+		t.Fatalf("snapshot wrote %d rows, want 4: %+v", len(rows), rows)
+	}
+	for _, r := range rows {
+		if r.Online != 1 {
+			t.Fatalf("%s/%s peaked at %d, want 1", r.Scope, r.Code, r.Online)
+		}
+	}
+}
